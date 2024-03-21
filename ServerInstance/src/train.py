@@ -27,7 +27,7 @@ class Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
         signal.signal(signal.SIGINT, self.signal_handler)
         self.start_epoch = 0
-        self.batch_interval = 100  # Save checkpoint every 100 batches, adjust as needed
+        self.batch_interval = 500  # Save checkpoint every 100 batches, adjust as needed
 
     def save_checkpoint(self, epoch, batch_idx=None):
         checkpoint_name = 'model_checkpoint' + '.pth'
