@@ -11,6 +11,9 @@ from model_definition import SimpleCNN  # Ensure this matches your model's impor
 
 class Trainer:
     def __init__(self, model, train_loader, checkpoint_dir='./checkpoints'):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        self.model = model.to(self.device)  # Move model to the appropriate device
         self.model = model
         self.train_loader = train_loader
         self.checkpoint_dir = checkpoint_dir
@@ -40,7 +43,7 @@ class Trainer:
     def load_checkpoint(self):
         if os.path.isfile(self.checkpoint_path):
             print("Loading checkpoint...")
-            checkpoint = torch.load(self.checkpoint_path)
+            checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
             self.start_epoch = checkpoint['epoch']
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -71,6 +74,8 @@ class Trainer:
                 for batch_idx, (inputs, targets) in enumerate(tqdm(self.train_loader, desc=f'Epoch {epoch+1}/{self.start_epoch + num_epochs}'), start=1):
                     if last_batch_idx and batch_idx <= last_batch_idx:
                         continue  # Skip batches until we reach the last saved batch
+                    # Move data to the appropriate device after the checkpoint batch check
+                    inputs, targets = inputs.to(self.device), targets.to(self.device)
                     self.optimizer.zero_grad()
                     outputs = self.model(inputs)
                     loss = self.criterion(outputs, targets)
