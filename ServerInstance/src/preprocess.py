@@ -3,20 +3,44 @@ from PIL import Image
 import torchvision.transforms as transforms
 from tqdm import tqdm  # Import tqdm
 import random
+import shutil
 
 # Adjust the root directory of the dataset and the target directory for processed images
 root_dir = '../data'
 target_dir = '../processed'
 
-# Define the transformation: resize to 256x256 and convert to tensor
+class MakeSquarePad(object):
+    def __init__(self, fill=0, padding_mode='constant'):
+        self.fill = fill
+        self.padding_mode = padding_mode
+
+    def __call__(self, img):
+        w, h = img.size
+        max_side = max(w, h)
+        pad_left = (max_side - w) // 2
+        pad_right = max_side - w - pad_left
+        pad_top = (max_side - h) // 2
+        pad_bottom = max_side - h - pad_top
+        padding = (pad_left, pad_top, pad_right, pad_bottom)
+        return transforms.Pad(padding, fill=self.fill, padding_mode=self.padding_mode)(img)
+
+
+# Now, include the custom padding in your transformation pipeline
 transform = transforms.Compose([
-    transforms.Resize((256, 256)),
+    MakeSquarePad(fill=255, padding_mode='constant'),  # Dynamically pad the image to make it square
+    transforms.Resize((256, 256)),  # Then resize it to 256x256
     transforms.ToTensor(),
-    transforms.ToPILImage()  # Add ToPILImage here for direct saving after transformation
+    transforms.ToPILImage()  # Optional: Convert back to PIL Image for further use or saving
 ])
 
-# Function to process and save a percentage of the images in the new directory
-def process_and_save_images(dataset_type, percentage):
+
+def empty_processed_folder():
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    os.makedirs(target_dir, exist_ok=True)
+
+
+def process_and_save_images(dataset_type, num_files=None):
     dataset_path = os.path.join(root_dir, dataset_type)
     target_path = os.path.join(target_dir, dataset_type)
 
@@ -26,28 +50,30 @@ def process_and_save_images(dataset_type, percentage):
         os.makedirs(target_class_path, exist_ok=True)
 
         image_names = os.listdir(class_path)
-        num_files_to_process = int(len(image_names) * (percentage / 100))
         
-        # Randomly select a subset of files based on the specified percentage
-        selected_files = random.sample(image_names, num_files_to_process)
+        if num_files is not None:  # For training, when num_files is specified
+            selected_files = random.sample(image_names, min(num_files, len(image_names)))
+        else:  # For testing, process all files
+            selected_files = image_names
 
-        # Wrap the loop with tqdm for a progress bar
-        for img_name in tqdm(selected_files, desc=f'Processing {percentage}% of {dataset_type}/{class_name}'):
+        for img_name in tqdm(selected_files, desc=f'Processing {dataset_type}/{class_name}'):
             img_path = os.path.join(class_path, img_name)
-            img = Image.open(img_path).convert('RGB')  # Ensure it's RGB
+            img = Image.open(img_path)
             
             # Apply transformation
             img_transformed = transform(img)
             
             save_path = os.path.join(target_class_path, img_name)
-            img_transformed.save(save_path)  # Save directly
+            img_transformed.save(save_path)
 
-# Ask for the percentage of files to use
-percentage = float(input("Enter the percentage of files you want to use (0-100): "))
+empty_processed_folder()
 
-# Validate the input percentage
-if 0 <= percentage <= 100:
-    process_and_save_images('train', percentage)
-    process_and_save_images('test', percentage)
+# Specify the number of files for each category in the training dataset
+num_files_for_training = int(input("Enter the number of files you want to process for each category in training: "))
+
+# Validate the input number
+if num_files_for_training > 0:
+    process_and_save_images('train', num_files_for_training)
+    process_and_save_images('test')  # Process all files for testing
 else:
-    print("Invalid percentage. Please enter a value between 0 and 100.")
+    print("Invalid number. Please enter a value greater than 0.")
