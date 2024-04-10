@@ -21,7 +21,8 @@ print(f'Using device: {device}')
 # Define transformations for the test set
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
-    transforms.ToTensor()
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.3196], std=[0.2934]),
 ])
 
 # Assuming the dataset directories are structured properly for the test set

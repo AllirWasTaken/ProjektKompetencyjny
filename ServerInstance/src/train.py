@@ -24,7 +24,7 @@ class Trainer:
 
     def configure(self):
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+        self.optimizer = optim.RMSprop(self.model.parameters(), lr=0.001)
         self.start_epoch = 0
 
     def save_checkpoint(self, epoch):
@@ -119,7 +119,8 @@ class Trainer:
 if __name__ == "__main__":
     transform = transforms.Compose([
         transforms.Grayscale(num_output_channels=1),
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.3196], std=[0.2934]),
     ])
 
     train_dataset = datasets.ImageFolder(root='../processed/train', transform=transform)

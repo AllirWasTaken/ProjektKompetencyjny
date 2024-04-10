@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# Define source and destination paths
-src_dir="src/checkpoints"
-backup_dir="model_backups"
-
 # Function to backup a model
 backup_model() {
+    src_dir="src/checkpoints"
+    backup_dir="model_backups"
     echo "Backing up the model..."
     # Get the provided name for the backup
     backup_name="$1"
@@ -14,25 +12,24 @@ backup_model() {
         echo "Error: Please provide a name for the backup."
         return 1
     fi
-    # Define source file path
-    src_file="$src_dir/model_checkpoint.pth"
     # Define destination directory
     dest_dir="$backup_dir/$backup_name"
     # Create destination directory if it doesn't exist
     mkdir -p "$dest_dir"
     # Copy the file to the destination directory
-    cp "$src_file" "$dest_dir/"
+    cp "$src_dir/." "$dest_dir" -r
     # Check if the copy was successful
     if [ $? -eq 0 ]; then
-        echo "File copied successfully to $dest_dir."
+        echo "Folder copied successfully to $dest_dir."
     else
-        echo "Error: Failed to copy file to $dest_dir."
+        echo "Error: Failed to copy folder to $dest_dir."
         return 1
     fi
 }
 
 # Function to load a model
 load_model() {
+    backup_dir="model_backups"
     echo "Loading a model..."
     # Get the provided name for the backup
     backup_name="$1"
@@ -49,21 +46,33 @@ load_model() {
         return 1
     fi
     # Define destination directory
-    dest_dir="src/checkpoints/model_checkpoint.pth"
-    # Move the file to the source directory with the name 'model_checkpoint.pth'
-    cp "$src_dir/model_checkpoint.pth" "$dest_dir"
+    dest_dir="src/checkpoints"
+    # Move the file to the source directory
+    cp "$src_dir/." "$dest_dir" -r
     # Check if the move was successful
     if [ $? -eq 0 ]; then
-        echo "File moved successfully to $dest_dir."
+        echo "Folder moved successfully to $dest_dir."
     else
-        echo "Error: Failed to move file to $dest_dir."
+        echo "Error: Failed to move folder to $dest_dir."
         return 1
     fi
 }
 
-# Ask the user whether to backup or load a model
-echo "Do you want to backup or load a model?"
-select option in "Backup" "Load"; do
+# Function to remove current model data
+remove_model_data() {
+    echo "Are you sure you want to delete current model data? (yes/no)"
+    read confirmation
+    if [ "$confirmation" = "yes" ]; then
+        rm -r src/checkpoints/*
+        echo "Current model data deleted."
+    else
+        echo "Deletion canceled."
+    fi
+}
+
+# Ask the user whether to backup, load a model, or remove current model data
+echo "Do you want to backup, load a model, or remove current model data?"
+select option in "Backup" "Load" "Remove"; do
     case "$option" in
         "Backup")
             read -p "Enter a name for the backup: " backup_name
@@ -75,8 +84,12 @@ select option in "Backup" "Load"; do
             load_model "$backup_name"
             break
             ;;
+        "Remove")
+            remove_model_data
+            break
+            ;;
         *)
-            echo "Invalid option. Please select 1 or 2."
+            echo "Invalid option. Please select 1, 2, or 3."
             ;;
     esac
 done
