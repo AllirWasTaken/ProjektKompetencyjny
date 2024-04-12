@@ -1,4 +1,7 @@
 import os
+import shutil
+import pickle
+
 from sklearn.metrics import accuracy_score, f1_score, cohen_kappa_score
 from tqdm import tqdm
 import torch
@@ -8,7 +11,21 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from model_definition import SimpleCNN  # Ensure this matches your model's import path
 
+
+def load_accuracy(path):
+    try:
+        with open(path, 'rb') as fi:
+            return pickle.load(fi)
+    except:
+        return 0
+
+
 class Trainer:
+
+    best_accuracy_path = f"./checkpoints/best_accuracy.pk"
+    best_accuracy = load_accuracy(best_accuracy_path) * 1.0
+    best_checkpoint_path = f"./checkpoints/best_checkpoint_{best_accuracy:{1}.{2}}"
+
     def __init__(self, model, train_loader, test_loader, checkpoint_dir='./checkpoints'):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
@@ -21,6 +38,8 @@ class Trainer:
         os.makedirs(checkpoint_dir, exist_ok=True)
         self.main_process_id = os.getpid()
         self.configure()
+        self.current_accuracy = 0
+
 
     def configure(self):
         self.criterion = nn.CrossEntropyLoss()
@@ -48,6 +67,22 @@ class Trainer:
         else:
             print("No checkpoint found, starting from scratch")
 
+    def save_accuracy(self):
+        with open(Trainer.best_accuracy_path, 'wb') as fi:
+            pickle.dump(self.current_accuracy, fi)
+
+    def save_best_checkpoint(self):
+
+        if Trainer.best_accuracy < self.current_accuracy:
+            if os.path.isfile(Trainer.best_checkpoint_path):
+                os.remove(Trainer.best_checkpoint_path)
+
+            Trainer.best_accuracy = self.current_accuracy * 1.0
+            Trainer.best_checkpoint_path = f"./checkpoints/best_checkpoint_{self.current_accuracy:{1}.{2}}"
+            shutil.copy(self.checkpoint_path, Trainer.best_checkpoint_path)
+            self.save_accuracy()
+        return Trainer.best_accuracy, Trainer.best_checkpoint_path
+
 
     def test_and_add_statistics(self, loss):
 
@@ -71,7 +106,7 @@ class Trainer:
                 predictions.extend(predicted.cpu().numpy())
         
         # Calculate metrics
-        accuracy = accuracy_score(true_labels, predictions)
+        self.current_accuracy = accuracy_score(true_labels, predictions)
         f1 = f1_score(true_labels, predictions, average='weighted')
         kappa = cohen_kappa_score(true_labels, predictions)
         
@@ -79,7 +114,7 @@ class Trainer:
             os.makedirs(stats_directory)
         # Append metrics to their respective files
         with open(os.path.join(stats_directory, 'accuracy.txt'), 'a') as f:
-            f.write(f"{accuracy}\n")
+            f.write(f"{self.current_accuracy}\n")
         with open(os.path.join(stats_directory, 'f1.txt'), 'a') as f:
             f.write(f"{f1}\n")
         with open(os.path.join(stats_directory, 'kappa_cohens.txt'), 'a') as f:
@@ -115,6 +150,8 @@ class Trainer:
                 print(f'Epoch [{epoch+1}/{self.start_epoch + num_epochs}], Loss: {running_loss/len(self.train_loader)}')
                 self.save_checkpoint(epoch)  # Save at the end of each epoch
                 self.test_and_add_statistics(running_loss/len(self.train_loader))
+                Trainer.best_accuracy, Trainer.best_checkpoint_path = self.save_best_checkpoint()
+
 
 if __name__ == "__main__":
     transform = transforms.Compose([
