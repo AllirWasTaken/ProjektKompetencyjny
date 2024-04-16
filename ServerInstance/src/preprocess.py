@@ -28,7 +28,7 @@ class MakeSquarePad(object):
 # Now, include the custom padding in your transformation pipeline
 transform = transforms.Compose([
     MakeSquarePad(fill=255, padding_mode='constant'),  # Dynamically pad the image to make it square
-    transforms.Resize((256, 256)),  # Then resize it to 256x256
+    transforms.Resize((512, 512)),  # Then resize it to 512x512
     transforms.ToTensor(),
     transforms.ToPILImage()  # Optional: Convert back to PIL Image for further use or saving
 ])

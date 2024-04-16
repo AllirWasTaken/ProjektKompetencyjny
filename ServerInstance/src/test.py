@@ -27,7 +27,7 @@ transform = transforms.Compose([
 
 # Assuming the dataset directories are structured properly for the test set
 test_dataset = datasets.ImageFolder(root='../processed/test', transform=transform)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
 # Create a reverse mapping from index to class names
 idx_to_class = {v: k for k, v in test_dataset.class_to_idx.items()}

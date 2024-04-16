@@ -2,6 +2,8 @@ import os
 import shutil
 import pickle
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 from sklearn.metrics import accuracy_score, f1_score, cohen_kappa_score
 from tqdm import tqdm
 import torch
@@ -10,6 +12,8 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from model_definition import SimpleCNN  # Ensure this matches your model's import path
+
+
 
 
 def load_accuracy(path):
@@ -26,13 +30,11 @@ class Trainer:
     best_accuracy = load_accuracy(best_accuracy_path) * 1.0
     best_checkpoint_path = f"./checkpoints/best_checkpoint_{best_accuracy:{1}.{2}}"
 
-    def __init__(self, model, train_loader, test_loader, checkpoint_dir='./checkpoints'):
+    def __init__(self, model, checkpoint_dir='./checkpoints'):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         self.model = model.to(self.device)  # Move model to the appropriate device
         self.model = model
-        self.train_loader = train_loader
-        self.test_loader = test_loader
         self.checkpoint_dir = checkpoint_dir
         self.checkpoint_path = os.path.join(checkpoint_dir, 'model_checkpoint.pth')
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -43,7 +45,7 @@ class Trainer:
 
     def configure(self):
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.RMSprop(self.model.parameters(), lr=0.001)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.0001)
         self.start_epoch = 0
 
     def save_checkpoint(self, epoch):
@@ -74,6 +76,7 @@ class Trainer:
     def save_best_checkpoint(self):
 
         if Trainer.best_accuracy < self.current_accuracy:
+            print("New best accuaracy!")
             if os.path.isfile(Trainer.best_checkpoint_path):
                 os.remove(Trainer.best_checkpoint_path)
 
@@ -100,7 +103,7 @@ class Trainer:
         with torch.no_grad():
             for images, labels in tqdm(self.test_loader, desc="Testing Model"):
                 images, labels = images.to(self.device), labels.to(self.device)
-                outputs = model(images)
+                outputs = self.model(images)
                 _, predicted = torch.max(outputs, 1)
                 true_labels.extend(labels.cpu().numpy())
                 predictions.extend(predicted.cpu().numpy())
@@ -121,36 +124,44 @@ class Trainer:
             f.write(f"{kappa}\n")
         with open(os.path.join(stats_directory, 'loss.txt'), 'a') as f:
             f.write(f"{loss}\n")
-        print("Saved the model detection statistics, resuming training...\n")
+        print("Saved the model detection statistics, resuming training...")
 
 
 
 
 
     def train(self, num_epochs, resume_from_checkpoint=True):
-            if resume_from_checkpoint:
-                self.load_checkpoint()  # Load checkpoint if resuming
-            else:
-                print("Starting a new training session without loading a checkpoint.")
-            
-            for epoch in range(self.start_epoch, self.start_epoch + num_epochs):
-                self.current_epoch = epoch
-                self.model.train()
-                running_loss = 0.0
-                for batch_idx, (inputs, targets) in enumerate(tqdm(self.train_loader, desc=f'Epoch {epoch+1}/{self.start_epoch + num_epochs}'), start=1):
-                    # Move data to the appropriate device after the checkpoint batch check
-                    inputs, targets = inputs.to(self.device), targets.to(self.device)
-                    self.optimizer.zero_grad()
-                    outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets)
-                    loss.backward()
-                    self.optimizer.step()
-                    running_loss += loss.item()
+        if resume_from_checkpoint:
+            self.load_checkpoint()  # Load checkpoint if resuming
+        else:
+            print("Starting a new training session without loading a checkpoint.")
 
-                print(f'Epoch [{epoch+1}/{self.start_epoch + num_epochs}], Loss: {running_loss/len(self.train_loader)}')
-                self.save_checkpoint(epoch)  # Save at the end of each epoch
-                self.test_and_add_statistics(running_loss/len(self.train_loader))
-                Trainer.best_accuracy, Trainer.best_checkpoint_path = self.save_best_checkpoint()
+        train_dataset = datasets.ImageFolder(root='../processed/train', transform=transform)
+        self.train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+
+        test_dataset = datasets.ImageFolder(root='../processed/test', transform=transform)
+        self.test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+            
+        for epoch in range(self.start_epoch, self.start_epoch + num_epochs):
+            self.current_epoch = epoch
+            self.model.train()
+            running_loss = 0.0
+            for batch_idx, (inputs, targets) in enumerate(tqdm(self.train_loader, desc=f'Epoch {epoch+1}/{self.start_epoch + num_epochs}'), start=1):
+                # Move data to the appropriate device after the checkpoint batch check
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                self.optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+                loss.backward()
+                self.optimizer.step()
+                running_loss += loss.item()
+
+            print(f'Epoch [{epoch+1}/{self.start_epoch + num_epochs}], Loss: {running_loss/len(self.train_loader)}')
+            self.save_checkpoint(epoch)  # Save at the end of each epoch
+            self.test_and_add_statistics(running_loss/len(self.train_loader))
+            print("Accuracy: ",self.current_accuracy)
+            Trainer.best_accuracy, Trainer.best_checkpoint_path = self.save_best_checkpoint()
+            print("\n")
 
 
 if __name__ == "__main__":
@@ -160,16 +171,10 @@ if __name__ == "__main__":
         transforms.Normalize(mean=[0.3196], std=[0.2934]),
     ])
 
-    train_dataset = datasets.ImageFolder(root='../processed/train', transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-
-    test_dataset = datasets.ImageFolder(root='../processed/test', transform=transform)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-
     num_classes = 4
     model = SimpleCNN(num_classes=num_classes)
 
-    trainer = Trainer(model, train_loader, test_loader)
+    trainer = Trainer(model)
 
     user_choice = input("Press 'N' to start a new training session or any other key to resume: ").lower()
     resume_training = True
