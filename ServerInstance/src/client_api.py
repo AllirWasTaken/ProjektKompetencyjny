@@ -7,7 +7,7 @@ def client_prediction(path_to_image):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
     port = 8211  # Server's port
-    host ='194.107.18.163'
+    host ='hostname'
     # Connect to the server
     client_socket.connect((host, port))
 
