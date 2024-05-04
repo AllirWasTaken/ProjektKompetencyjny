@@ -1,38 +1,20 @@
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes):
         super(SimpleCNN, self).__init__()
-        self.layer1 = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2))
+        # Load a pretrained ResNet50 model
+        self.resnet50 = models.resnet50(pretrained=True)
         
-        self.layer2 = nn.Sequential(
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2))
-        
-        self.layer3 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2))
+        # Replace the final fully connected layer
+        # ResNet50 features 2048 output channels at the final convolutional layer
+        self.resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
-        self.fc1 = nn.Linear(128 * 64 * 64, 512)
-        self.drop = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(512, num_classes)
-        self.relu = nn.ReLU()
+
+        num_features = self.resnet50.fc.in_features
+        self.resnet50.fc = nn.Linear(num_features, num_classes)
 
     def forward(self, x):
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = x.view(x.size(0), -1)  # Flatten
-        x = self.relu(self.fc1(x))
-        x = self.drop(x)
-        x = self.fc2(x)
-        return x
+        return self.resnet50(x)
