@@ -45,7 +45,7 @@ class Trainer:
 
     def configure(self):
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.0001)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.000000001)
         self.start_epoch = 0
 
     def save_checkpoint(self, epoch):

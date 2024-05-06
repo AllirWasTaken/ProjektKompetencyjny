@@ -136,5 +136,9 @@ class ServerApi:
 
 
 if __name__ == '__main__':
-    server=ServerApi()
-    server.Launch()
+    while True:
+        try:
+            server=ServerApi()
+            server.Launch()
+        except:
+            print("Exception occured on server, restarting")
