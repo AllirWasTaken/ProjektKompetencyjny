@@ -1,4 +1,6 @@
 print("Launching Server")
+import os
+os.environ["HSA_OVERRIDE_GFX_VERSION"]="10.3.0" 
 import socket
 import struct
 import torch
@@ -11,7 +13,7 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 from PIL import Image
-import os
+
 import torch.nn.functional as F
 import random
 import shutil
