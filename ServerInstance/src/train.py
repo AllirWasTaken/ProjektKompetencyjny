@@ -2,6 +2,7 @@ import os
 import shutil
 import pickle
 
+os.environ["HSA_OVERRIDE_GFX_VERSION"]="10.3.0" 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 from sklearn.metrics import accuracy_score, f1_score, cohen_kappa_score

@@ -1,184 +1,397 @@
-# Import necessary modules
 import customtkinter
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, Toplevel, Scrollbar, Text, RIGHT, Y, END, Frame, LEFT, BOTH
 from PIL import Image, ImageTk
-import socket
 import os
-import struct
-from client_api import client_prediction
+import json
+import datetime
+import tkinter as tk
+import client_api as api
 
 # Set appearance mode and color theme
 customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("dark-blue")
 
-# Global variable to store the currently displayed image
-current_image = None
+# Automatically configure the server address when the application starts
+server_address = "194.107.18.163"
+api.configure(server_address)
 
+# Global variables
+current_images = []
+original_images = []  # To store the original images
+current_user = None
+auth_key = None  # Authentication key for the server
+history_file = 'history.json'
+analysis_result = ""  # To store the analysis result
 
-# Placeholder function for image analysis
-def analyze_image(image_path):
-    try:
-        # Placeholder for actual image analysis logic
-        messagebox.showinfo("Analysis Result", "Eye disease detected: Glaucoma")
-    except Exception as e:
-        messagebox.showerror("Analysis Error", f"An error occurred during analysis: {str(e)}")
+# Function to handle login
+def handle_login(username, password):
+    global current_user, auth_key
+    auth_key = api.get_auth_key(username, password)
+    if auth_key != -1:
+        current_user = username
+        messagebox.showinfo("Login Successful", f"Logged in as: {current_user}")
+        # Enable the buttons related to image analysis, opening images, viewing history, and submitting comments
+        analyze_button.configure(state="normal")
+        mosaic_button.configure(state="normal")
+        open_image_button.configure(state="normal")
+        view_history_button.configure(state="normal")
+        submit_comment_button.configure(state="normal")
+        logout_button.configure(state="normal")
+    else:
+        messagebox.showerror("Login Failed", "Failed to login. Check your credentials or server configuration.")
 
+# Function to handle logout
+def handle_logout():
+    global current_user, auth_key
+    if auth_key:
+        api.log_out(auth_key)
+        current_user = None
+        auth_key = None
+        messagebox.showinfo("Logout Successful", "You have been logged out.")
+        # Disable buttons after logout
+        analyze_button.configure(state="disabled")
+        mosaic_button.configure(state="disabled")
+        open_image_button.configure(state="disabled")
+        view_history_button.configure(state="disabled")
+        submit_comment_button.configure(state="disabled")
+        logout_button.configure(state="disabled")
+
+# Function to open the login window
+def open_login_window():
+    login_window = Toplevel(root)
+    login_window.title("Login")
+    login_window.geometry("300x200")
+
+    username_label = customtkinter.CTkLabel(login_window, text="Username:")
+    username_label.pack(pady=5)
+    username_entry = customtkinter.CTkEntry(login_window)
+    username_entry.pack(pady=5)
+
+    password_label = customtkinter.CTkLabel(login_window, text="Password:")
+    password_label.pack(pady=5)
+    password_entry = customtkinter.CTkEntry(login_window, show='*')
+    password_entry.pack(pady=5)
+
+    login_button = customtkinter.CTkButton(login_window, text="Login", command=lambda: handle_login(username_entry.get(), password_entry.get()))
+    login_button.pack(pady=10)
 
 # Function to open an image and display it on the canvas
 def open_image():
-    global current_image
+    global current_images, original_images
     file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.gif")])
     if file_path:
         try:
-            # Open the image file
             image = Image.open(file_path)
-
-            # Store the current image
-            current_image = image
-
-            # Calculate the dimensions to resize the image while maintaining aspect ratio
+            original_images = [image.copy()]
+            current_images = [image]
             update_image_size()
-
         except Exception as e:
             messagebox.showerror("Image Error", f"An error occurred while opening the image: {str(e)}")
 
-
-# Function to analyze the currently displayed image
-# Function to analyze the currently displayed image
-# Function to analyze the currently displayed image
-def float_array_to_string(float_array):
-    # Convert each float in the array to a string and join them with commas
-    return ', '.join(map(str, float_array))
-
-def analyze_current_image():
-    global current_image
-    if current_image:
-        # Convert RGBA image to RGB mode if it's RGBA
-        if current_image.mode == 'RGBA':
-            current_image = current_image.convert('RGB')
-
-        # Save the image temporarily
-        temp_image_path = "temp_image.jpeg"
-        current_image.save(temp_image_path)
+# Function to open up to 4 images and display them on the canvas
+def open_images():
+    global current_images, original_images
+    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.gif")], title="Select up to 4 images", multiple=True)
+    if file_paths:
         try:
-            # Call the client_prediction function to analyze the image
-            result = client_prediction(temp_image_path)
-
-            # Process the result (for example, display it)
-            # Here you may need to handle binary data according to your server's response
-            # For example, you may need to convert binary data to a string or parse it differently
-            # For demonstration purposes, let's assume the result is a string
-            result_str = float_array_to_string(result)
-            
-
-            messagebox.showinfo("Analysis Result", f"Eye disease detected: {result_str}")
+            images = [Image.open(file_path) for file_path in file_paths[:4]]
+            original_images = [image.copy() for image in images]
+            current_images = images
+            update_image_size()
         except Exception as e:
-            messagebox.showerror("Analysis Error", f"An error occurred during analysis: {str(e)}")
-        finally:
-            # Remove the temporary image file
-            os.remove(temp_image_path)
+            messagebox.showerror("Image Error", f"An error occurred while opening the images: {str(e)}")
+
+# Function to analyze the currently displayed image
+def analyze_current_image():
+    global current_images, current_user, comment_entry, analysis_result, auth_key
+    if current_images:
+        if current_user is None:
+            messagebox.showinfo("Login Required", "Please log in before analyzing images.")
+            return
+
+        if auth_key is None:
+            messagebox.showinfo("Configuration Required", "Please configure the server and log in.")
+            return
+
+        results = []
+        for image in current_images:
+            if image.mode == 'RGBA':
+                image = image.convert('RGB')
+
+            temp_image_path = "temp_image.jpg"
+            image.save(temp_image_path)
+
+            try:
+                folder = api.create_prediction_folder(auth_key)
+                api.add_image_to_prediction(auth_key,folder,temp_image_path)
+                prediction=api.make_mass_prediction(auth_key,folder)
+
+                results.append(prediction[0])
+                log_analysis(temp_image_path, str(prediction[0]), current_user)
+            except Exception as e:
+                messagebox.showerror("Analysis Error", f"An error occurred during analysis: {str(e)}")
+            finally:
+                os.remove(temp_image_path)
+
+        analysis_result = f"Analysis Results: {results}"
+        result_display.configure(state='normal')
+        result_display.delete('1.0', END)
+        result_display.insert('1.0', analysis_result)  # Display results in the result area
+        result_display.configure(state='disabled')  # Make the result display read-only
+        comment_entry.configure(state='normal')  # Enable the comment entry after analysis
+
     else:
         messagebox.showinfo("Information", "No image is currently displayed.")
 
-
 # Function to view analysis history
 def view_analysis_history():
-    # Placeholder function for viewing analysis history
-    messagebox.showinfo("Analysis History", "No analysis history available yet.")
-
-
-# Function to update the size of the displayed image on the canvas
-def update_image_size():
-    global current_image
     try:
-        if current_image:
-            # Retrieve the current image
-            image = current_image
+        with open(history_file, 'r') as file:
+            history_data = json.load(file)
+            history = history_data.get('history', [])
 
-            # Calculate the dimensions to resize the image while maintaining aspect ratio
-            container_width = canvas.winfo_width()
-            container_height = canvas.winfo_height()
-            image_width, image_height = image.size
-            aspect_ratio = min(container_width / image_width, container_height / image_height)
-            new_width = int(image_width * aspect_ratio)
-            new_height = int(image_height * aspect_ratio)
+            history_window = Toplevel(root)
+            history_window.title("Analysis History")
+            history_window.geometry("600x400")
 
-            # Resize the image with LANCZOS filter (anti-aliasing)
-            resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+            scrollbar = Scrollbar(history_window)
+            scrollbar.pack(side=RIGHT, fill=Y)
 
-            # Convert the resized image for Tkinter
-            tk_image = ImageTk.PhotoImage(resized_image)
+            text_area = Text(history_window, wrap='word', yscrollcommand=scrollbar.set)
+            text_area.pack(expand=True, fill='both')
 
-            # Clear the canvas before drawing the resized image
-            canvas.delete("all")
+            for entry in history:
+                entry_str = f"{entry['timestamp']} - {entry['user']} analyzed {entry['image']} and detected {entry['disease']}\n"
+                text_area.insert(END, entry_str)
 
-            # Display the resized image on the canvas
-            canvas.create_image(container_width / 2, container_height / 2, anchor="center", image=tk_image)
+            text_area.config(state='disabled')
+            scrollbar.config(command=text_area.yview)
 
-            # Configure the canvas to expand and fill its parent frame
-            canvas.config(scrollregion=canvas.bbox("all"))
+    except FileNotFoundError:
+        messagebox.showinfo("Analysis History", "No analysis history available yet.")
+    except Exception as e:
+        messagebox.showerror("History Error", f"An error occurred while loading the history: {str(e)}")
 
-            # Store the reference to the image to prevent it from being garbage collected
-            canvas.image = tk_image
+# Function to log the analysis to a JSON file
+def log_analysis(image_path, disease, user):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    analysis_entry = {
+        "image": image_path,
+        "disease": disease,
+        "timestamp": timestamp,
+        "user": user
+    }
+
+    try:
+        if os.path.exists(history_file):
+            with open(history_file, 'r') as file:
+                history_data = json.load(file)
+        else:
+            history_data = {"history": []}
+
+        history_data["history"].append(analysis_entry)
+
+        with open(history_file, 'w') as file:
+            json.dump(history_data, file, indent=4)
 
     except Exception as e:
-        messagebox.showerror("Image Error", f"An error occurred while resizing the image: {str(e)}")
+        messagebox.showerror("Logging Error", f"An error occurred while logging the analysis: {str(e)}")
 
+# Function to display an image in a new window
+def show_image_in_new_window(original_image):
+    new_window = Toplevel(root)
+    new_window.title("Image Viewer")
 
-# Function to connect to the server and perform prediction
+    # Set the new window size to 60% of the main window size
+    main_window_width = root.winfo_width()
+    main_window_height = root.winfo_height()
+    new_window.geometry(f"{int(main_window_width * 0.6)}x{int(main_window_height * 0.6)}")
 
+    display_frame = Frame(new_window, bg="black")
+    display_frame.pack(fill="both", expand=True)
 
-# Function to check if the server is up
-def is_server_up(host, port):
+    canvas = tk.Canvas(display_frame, bg="black")
+    canvas.pack(fill="both", expand=True)
+
+    def resize_image(event):
+        display_width = display_frame.winfo_width()
+        display_height = display_frame.winfo_height()
+        aspect_ratio = min(display_width / original_image.width, display_height / original_image.height)
+        new_width = int(original_image.width * aspect_ratio)
+        new_height = int(original_image.height * aspect_ratio)
+
+        if new_width <= 0 or new_height <= 0:
+            return  # Avoid resizing to zero or negative dimensions
+
+        resized_image = original_image.resize((new_width, new_height), Image.LANCZOS)
+        tk_image = ImageTk.PhotoImage(resized_image)
+
+        canvas.delete("all")
+        canvas.create_image(display_width / 2, display_height / 2, anchor="center", image=tk_image)
+
+        if not hasattr(canvas, 'images'):
+            canvas.images = []
+        canvas.images.append(tk_image)
+
+    new_window.bind("<Configure>", resize_image)
+
+# Function to update the size of the displayed images on the canvas
+def update_image_size():
+    global current_images
     try:
-        # Set up a temporary socket to check if connection is successful
-        with socket.create_connection((host, port), timeout=2) as temp_socket:
-            return True
-    except (socket.timeout, ConnectionRefusedError):
-        return False
+        if current_images:
+            images = current_images
+            canvas.delete("all")
 
-# Function to connect to the server and perform prediction
+            container_width = image_frame.winfo_width()
+            container_height = image_frame.winfo_height()
+            grid_size = 2
 
+            padding = 20
+            cell_width = (container_width - padding * (grid_size + 1)) / grid_size
+            cell_height = (container_height - padding * (grid_size + 1)) / grid_size
 
+            total_grid_width = cell_width * grid_size + padding * (grid_size + 1)
+            total_grid_height = cell_height * grid_size + padding * (grid_size + 1)
 
+            start_x = (container_width - total_grid_width) / 2
+            start_y = (container_height - total_grid_height) / 2
 
-# Create the main window
-root = customtkinter.CTk()
-root.geometry("500x500")  # Increased height for better image display
-root.title("Eye Disease Analyzer")
+            for idx, image in enumerate(images):
+                image_width, image_height = image.size
+                aspect_ratio = min((cell_width - padding * 2) / image_width, (cell_height - padding * 2) / image_height)
+                new_width = int(image_width * aspect_ratio)
+                new_height = int(image_height * aspect_ratio)
+                resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+                tk_image = ImageTk.PhotoImage(resized_image)
 
-# Create the main frame
-frame = customtkinter.CTkFrame(master=root)
-frame.pack(pady=20, padx=60, fill="both", expand=True)
+                row, col = divmod(idx, grid_size)
+                x = start_x + padding + col * (cell_width + padding)
+                y = start_y + padding + row * (cell_height + padding)
+                x_centered = x + (cell_width - new_width) / 2
+                y_centered = y + (cell_height - new_height) / 2
 
-# Create a label for instructions
-label = customtkinter.CTkLabel(master=frame, text="Click the buttons to interact with the application:")
-label.pack(pady=12, padx=10)
+                img_id = canvas.create_image(x_centered, y_centered, anchor="nw", image=tk_image)
+                canvas.tag_bind(img_id, "<Button-1>", lambda event, img=original_images[idx]: show_image_in_new_window(img))
 
-# Create a canvas for displaying images
-canvas = customtkinter.CTkCanvas(master=frame)
-canvas.pack(pady=12, padx=10, fill="both", expand=True)
+                border_padding = 5
+                canvas.create_rectangle(
+                    x_centered - border_padding, y_centered - border_padding,
+                    x_centered + new_width + border_padding, y_centered + new_height + border_padding,
+                    outline="red", width=2
+                )
 
-# Create toolbar for buttons
-toolbar = customtkinter.CTkFrame(master=frame)
+                # Draw the image index number in the top-left corner
+                number_x = x_centered + padding
+                number_y = y_centered + padding
+                canvas.create_text(number_x, number_y, text=f"{idx + 1}", fill="red", font=("Arial", 20))
 
-# Create a button to analyze the current image
-analyze_button = customtkinter.CTkButton(master=toolbar, text="Analyze Image", command=analyze_current_image)
-analyze_button.pack(side="left", padx=5)
+                if not hasattr(canvas, 'images'):
+                    canvas.images = []
+                canvas.images.append(tk_image)
 
-# Create a button to select an image
-select_button = customtkinter.CTkButton(master=toolbar, text="Select Image", command=open_image)
-select_button.pack(side="left", padx=5)
+            for i in range(1, grid_size):
+                canvas.create_line(start_x + i * (cell_width + padding), start_y,
+                                   start_x + i * (cell_width + padding), start_y + total_grid_height,
+                                   fill="red", width=2)
+                canvas.create_line(start_x, start_y + i * (cell_height + padding),
+                                   start_x + total_grid_width, start_y + i * (cell_height + padding),
+                                   fill="red", width=2)
 
-# Create a button to view analysis history
-history_button = customtkinter.CTkButton(master=toolbar, text="View Analysis History", command=view_analysis_history)
-history_button.pack(side="left", padx=5)
+            canvas.config(scrollregion=canvas.bbox("all"))
 
-# Pack the toolbar below the canvas
-toolbar.pack(side="bottom", fill="x", pady=5)
+    except Exception as e:
+        messagebox.showerror("Image Error", f"An error occurred while displaying the images: {str(e)}")
 
-# Bind a function to the window's <Configure> event to handle window resizing
-root.bind("<Configure>", lambda event: update_image_size())
+# Function to handle comment submission
+def submit_comment():
+    global comment_entry, current_user
+    comment = comment_entry.get("1.0", "end-1c").strip()
+    if comment:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        comment_entry.configure(state='disabled')
 
-# Start the Tkinter event loop
-root.mainloop()
+        messagebox.showinfo("Comment Submitted", f"Comment by {current_user} at {timestamp}:\n\n{comment}")
+        comment_entry.delete("1.0", "end")
+
+    else:
+        messagebox.showwarning("Empty Comment", "Comment cannot be empty.")
+
+# Main window setup
+def show_main_window():
+    global canvas, comment_entry, result_display, analyze_button, mosaic_button, open_image_button, view_history_button, submit_comment_button, image_frame, logout_button
+    global root
+
+    root = customtkinter.CTk()
+    root.title("Eye Disease Detection")
+
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    initial_width = int(screen_width * 0.8)
+    initial_height = int(screen_height * 0.8)
+
+    # Calculate the position to center the window
+    position_right = int(screen_width / 2 - initial_width / 2)
+    position_down = int(screen_height / 2 - initial_height / 2)
+    root.geometry(f"{initial_width}x{initial_height}+{position_right}+{position_down}")
+
+    # Adjust layout for image display (60%) and buttons (40%)
+    image_frame = Frame(root, bg="black", width=int(initial_width * 0.6), height=initial_height)
+    image_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+    image_frame.pack_propagate(False)
+
+    canvas = tk.Canvas(image_frame, bg="black")
+    canvas.pack(fill="both", expand=True)
+
+    button_frame = customtkinter.CTkFrame(root, width=int(initial_width * 0.4))
+    button_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+
+    button_frame_inner = customtkinter.CTkFrame(button_frame)
+    button_frame_inner.pack(pady=10)
+
+    # Arrange buttons horizontally and wrap to new line if necessary
+    analyze_button = customtkinter.CTkButton(button_frame_inner, text="Analyze Image", command=analyze_current_image, state="disabled")
+    analyze_button.grid(row=0, column=0, padx=5, pady=5)
+
+    mosaic_button = customtkinter.CTkButton(button_frame_inner, text="Mosaic Mode", command=open_images, state="enabled")
+    mosaic_button.grid(row=0, column=1, padx=5, pady=5)
+
+    open_image_button = customtkinter.CTkButton(button_frame_inner, text="Open Image", command=open_image, state="disabled")
+    open_image_button.grid(row=0, column=2, padx=5, pady=5)
+
+    view_history_button = customtkinter.CTkButton(button_frame_inner, text="View History", command=view_analysis_history, state="disabled")
+    view_history_button.grid(row=1, column=0, padx=5, pady=5)
+
+    login_button = customtkinter.CTkButton(button_frame_inner, text="Login", command=open_login_window)
+    login_button.grid(row=1, column=1, padx=5, pady=5)
+
+    logout_button = customtkinter.CTkButton(button_frame_inner, text="Logout", command=handle_logout, state="disabled")
+    logout_button.grid(row=1, column=2, padx=5, pady=5)
+
+    result_label = customtkinter.CTkLabel(button_frame, text="Analysis Result:")
+    result_label.pack(pady=10)
+
+    result_display = tk.Text(button_frame, height=10, width=60, state='disabled', wrap='word')
+    result_display.pack(pady=10)
+
+    comment_label = customtkinter.CTkLabel(button_frame, text="Comment:")
+    comment_label.pack(pady=10)
+
+    comment_frame = Frame(button_frame)
+    comment_frame.pack(pady=10)
+
+    comment_entry = tk.Text(comment_frame, height=15, width=80, wrap='word', state='disabled')
+    comment_scrollbar = Scrollbar(comment_frame, command=comment_entry.yview)
+    comment_scrollbar.pack(side=RIGHT, fill=Y)
+    comment_entry.config(yscrollcommand=comment_scrollbar.set)
+    comment_entry.pack(side=LEFT, fill=BOTH, expand=True)
+
+    submit_comment_button = customtkinter.CTkButton(button_frame, text="Submit Comment", command=submit_comment, state="disabled")
+    submit_comment_button.pack(pady=10)
+
+    root.bind("<Configure>", lambda event: update_image_size())
+
+    root.mainloop()
+
+if __name__ == "__main__":
+    show_main_window()

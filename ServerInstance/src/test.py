@@ -1,3 +1,5 @@
+import os
+os.environ["HSA_OVERRIDE_GFX_VERSION"]="10.3.0" 
 import torch
 import torch.nn.functional as F
 from torchvision import datasets, transforms
@@ -5,7 +7,6 @@ from torch.utils.data import DataLoader
 from model_definition import SimpleCNN  # Ensure this matches your model file and class name
 from tqdm import tqdm
 import shutil
-import os
 import numpy as np
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
