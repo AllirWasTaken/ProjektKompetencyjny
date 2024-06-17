@@ -1,79 +1,75 @@
-import os
-from PIL import Image
-import torchvision.transforms as transforms
-from tqdm import tqdm  # Import tqdm
-import random
-import shutil
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 
-# Adjust the root directory of the dataset and the target directory for processed images
-root_dir = '../data'
-target_dir = '../processed'
+# Load the image
+image_path = '3.jpeg'
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
-class MakeSquarePad(object):
-    def __init__(self, fill=0, padding_mode='constant'):
-        self.fill = fill
-        self.padding_mode = padding_mode
+plt.figure(figsize=(15, 10))
+plt.subplot(3, 4, 1)
+plt.title("Original Image")
+plt.imshow(image, cmap='gray')
 
-    def __call__(self, img):
-        w, h = img.size
-        max_side = max(w, h)
-        pad_left = (max_side - w) // 2
-        pad_right = max_side - w - pad_left
-        pad_top = (max_side - h) // 2
-        pad_bottom = max_side - h - pad_top
-        padding = (pad_left, pad_top, pad_right, pad_bottom)
-        return transforms.Pad(padding, fill=self.fill, padding_mode=self.padding_mode)(img)
+# Threshold to create a binary mask
+_, binary_mask = cv2.threshold(image, 250, 255, cv2.THRESH_BINARY)
+plt.subplot(3, 4, 2)
+plt.title("White space on edge of screen")
+plt.imshow(binary_mask, cmap='gray')
+
+# Find contours of the white region
+contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# Identify the largest contour
+largest_contour = max(contours, key=cv2.contourArea)
+
+# Draw over the largest contour to remove it (fill it with black)
+cv2.drawContours(image, [largest_contour], -1, (0, 0, 0), thickness=cv2.FILLED)
+plt.subplot(3, 4, 3)
+plt.title("Contour Removed")
+plt.imshow(image, cmap='gray')
+
+# Apply Non-Local Means Denoising
+nlm_filtered = cv2.fastNlMeansDenoising(image, None, 30, 7, 21)
+plt.subplot(3, 4, 4)
+plt.title("NLM Filtered")
+plt.imshow(nlm_filtered, cmap='gray')
+
+# Calculate median value and create mask
+median_value = np.mean(nlm_filtered)
+_, mask = cv2.threshold(nlm_filtered, median_value, 255, cv2.THRESH_BINARY)
+plt.subplot(3, 4, 5)
+plt.title("Mask from NLM Filtered")
+plt.imshow(mask, cmap='gray')
+
+# Find contours on the mask
+contours2, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# Identify the largest contour from the mask
+largest_contour2 = max(contours2, key=cv2.contourArea)
+
+black_image = image.copy()
+black_image[:, :] = 0
+
+# Draw the largest contour on the original image (fill it with white)
+cv2.drawContours(black_image, [largest_contour2], -1, (255, 255, 255), thickness=cv2.FILLED)
 
 
-# Now, include the custom padding in your transformation pipeline
-transform = transforms.Compose([
-    MakeSquarePad(fill=255, padding_mode='constant'),  # Dynamically pad the image to make it square
-    transforms.Resize((512, 512)),  # Then resize it to 512x512
-    transforms.ToTensor(),
-    transforms.ToPILImage()  # Optional: Convert back to PIL Image for further use or saving
-])
+# Cut out the region
+cut_out = cv2.bitwise_and(image, black_image)
+plt.subplot(3, 4, 6)
+plt.title("Cut Out")
+plt.imshow(black_image, cmap='gray')
+
+# Final image
+final_image = cut_out
+plt.subplot(3, 4, 7)
+plt.title("Final cut out")
+plt.imshow(final_image, cmap='gray')
 
 
-def empty_processed_folder():
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir, exist_ok=True)
 
 
-def process_and_save_images(dataset_type, num_files=None):
-    dataset_path = os.path.join(root_dir, dataset_type)
-    target_path = os.path.join(target_dir, dataset_type)
 
-    for class_name in os.listdir(dataset_path):
-        class_path = os.path.join(dataset_path, class_name)
-        target_class_path = os.path.join(target_path, class_name)
-        os.makedirs(target_class_path, exist_ok=True)
-
-        image_names = os.listdir(class_path)
-        
-        if num_files is not None:  # For training, when num_files is specified
-            selected_files = random.sample(image_names, min(num_files, len(image_names)))
-        else:  # For testing, process all files
-            selected_files = image_names
-
-        for img_name in tqdm(selected_files, desc=f'Processing {dataset_type}/{class_name}'):
-            img_path = os.path.join(class_path, img_name)
-            img = Image.open(img_path)
-            
-            # Apply transformation
-            img_transformed = transform(img)
-            
-            save_path = os.path.join(target_class_path, img_name)
-            img_transformed.save(save_path)
-
-empty_processed_folder()
-
-# Specify the number of files for each category in the training dataset
-num_files_for_training = int(input("Enter the number of files you want to process for each category in training: "))
-
-# Validate the input number
-if num_files_for_training > 0:
-    process_and_save_images('train', num_files_for_training)
-    process_and_save_images('test')  # Process all files for testing
-else:
-    print("Invalid number. Please enter a value greater than 0.")
+plt.tight_layout()
+plt.show()
