@@ -3,8 +3,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the image
-image_path = '3.jpeg'
-image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+image_path = '4.jpeg'
+original = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+image = original
 
 plt.figure(figsize=(15, 10))
 plt.subplot(3, 4, 1)
@@ -42,13 +43,26 @@ plt.subplot(3, 4, 5)
 plt.title("Mask from NLM Filtered")
 plt.imshow(mask, cmap='gray')
 
+border_size=5
+height, width = image.shape
+cropped_image = mask[border_size:height-border_size, border_size:width-border_size]
+bordered_image = cv2.copyMakeBorder(
+    cropped_image,
+    top=border_size,
+    bottom=border_size,
+    left=border_size,
+    right=border_size,
+    borderType=cv2.BORDER_CONSTANT,
+    value=[0, 0, 0]  # Black color
+)
+
 # Find contours on the mask
-contours2, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+contours2, _ = cv2.findContours(bordered_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 # Identify the largest contour from the mask
 largest_contour2 = max(contours2, key=cv2.contourArea)
 
-black_image = image.copy()
+black_image = original.copy()
 black_image[:, :] = 0
 
 # Draw the largest contour on the original image (fill it with white)
