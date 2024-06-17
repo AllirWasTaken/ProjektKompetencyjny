@@ -12,9 +12,10 @@ key=get_auth_key('dawid','haslo')
 print(key)
 print(get_label_names(key))
 folder=create_prediction_folder(key)
-add_image_to_prediction(key,folder,'1.jpeg')
-add_image_to_prediction(key,folder,'2.jpeg')
-add_image_to_prediction(key,folder,'3.jpeg')
+add_image_to_prediction(key,folder,'cnv.jpeg')
+add_image_to_prediction(key,folder,'dme.jpeg')
+add_image_to_prediction(key,folder,'dru.jpeg')
+add_image_to_prediction(key,folder,'nor.jpeg')
 print(make_mass_prediction(key,folder))
 
 

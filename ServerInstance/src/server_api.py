@@ -21,6 +21,7 @@ from torch.utils.data import Dataset
 
 model_path='serverFiles/model.pth'
 server_ip='localhost'
+labelNames=['NORMAL','DME','CNV','DRUSEN']
 
 
 class ImageDataset(Dataset):
@@ -240,9 +241,8 @@ class ServerApi:
     def LabelNames(self):
         if(self.Autheticate()==False):
             return
-        labels=self.list_directories('../data/train')
         name=''
-        for label in labels:
+        for label in labelNames:
             name+=label+'|'
         self.client_socket.send(str(name).encode('utf-8'))
         self.client_socket.close()
