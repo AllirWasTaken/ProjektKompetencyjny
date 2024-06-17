@@ -1,18 +1,20 @@
 import customtkinter
 from tkinter import filedialog, messagebox, Toplevel, Scrollbar, Text, RIGHT, Y, END, Frame, LEFT, BOTH
+from tkinter.ttk import Treeview, Progressbar
 from PIL import Image, ImageTk
 import os
 import json
 import datetime
 import tkinter as tk
 import client_api as api
+import threading
 
 # Set appearance mode and color theme
 customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("dark-blue")
 
 # Automatically configure the server address when the application starts
-server_address = "194.107.18.163"
+server_address = "localhost"
 api.configure(server_address)
 
 # Global variables
@@ -20,19 +22,23 @@ current_images = []
 original_images = []  # To store the original images
 current_user = None
 auth_key = None  # Authentication key for the server
+disease_labels = []  # To store the disease labels
 history_file = 'history.json'
 analysis_result = ""  # To store the analysis result
 
 # Function to handle login
 def handle_login(username, password):
-    global current_user, auth_key
+    global current_user, auth_key, disease_labels
     auth_key = api.get_auth_key(username, password)
     if auth_key != -1:
         current_user = username
         messagebox.showinfo("Login Successful", f"Logged in as: {current_user}")
+        # Fetch disease labels
+        disease_labels = api.get_label_names(auth_key)
+        if not disease_labels:
+            disease_labels = ["Choroba 1", "Choroba 2", "Choroba 3", "Zdrowe Oko"]  # Default fallback
         # Enable the buttons related to image analysis, opening images, viewing history, and submitting comments
         analyze_button.configure(state="normal")
-        mosaic_button.configure(state="normal")
         open_image_button.configure(state="normal")
         view_history_button.configure(state="normal")
         submit_comment_button.configure(state="normal")
@@ -50,7 +56,6 @@ def handle_logout():
         messagebox.showinfo("Logout Successful", "You have been logged out.")
         # Disable buttons after logout
         analyze_button.configure(state="disabled")
-        mosaic_button.configure(state="disabled")
         open_image_button.configure(state="disabled")
         view_history_button.configure(state="disabled")
         submit_comment_button.configure(state="disabled")
@@ -101,9 +106,57 @@ def open_images():
         except Exception as e:
             messagebox.showerror("Image Error", f"An error occurred while opening the images: {str(e)}")
 
+# Function to translate the raw analysis result
+def translate_result(result):
+    global disease_labels
+    translated_results = []
+
+    for idx, probabilities in enumerate(result):
+        if len(probabilities) != len(disease_labels):
+            continue  # Skip this result if it doesn't match the number of labels
+        max_prob_index = probabilities.index(max(probabilities))
+        max_prob_disease = disease_labels[max_prob_index]
+        max_prob_percentage = max(probabilities) * 100
+        translated_results.append(f"{idx + 1}. {max_prob_disease}: {max_prob_percentage:.2f}%")
+
+    return "\n".join(translated_results)
+
+# Function to run analysis in a separate thread
+def run_analysis():
+    global current_images, current_user, analysis_result, auth_key
+    results = []
+    for image in current_images:
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+
+        temp_image_path = "temp_image.jpg"
+        image.save(temp_image_path)
+
+        try:
+            folder = api.create_prediction_folder(auth_key)
+            api.add_image_to_prediction(auth_key, folder, temp_image_path)
+            prediction = api.make_mass_prediction(auth_key, folder)
+
+            results.append(prediction[0])
+            log_analysis(temp_image_path, str(prediction[0]), current_user)
+        except Exception as e:
+            messagebox.showerror("Analysis Error", f"An error occurred during analysis: {str(e)}")
+        finally:
+            os.remove(temp_image_path)
+
+    translated_results = translate_result(results)
+    analysis_result = f"Analysis Results:\n{translated_results}"
+    result_display.configure(state='normal')
+    result_display.delete('1.0', END)
+    result_display.insert('1.0', analysis_result)
+    result_display.configure(state='disabled')
+    comment_entry.configure(state='normal')
+    progress_bar.stop()
+    progress_bar.pack_forget()  # Hide the progress bar after analysis
+
 # Function to analyze the currently displayed image
 def analyze_current_image():
-    global current_images, current_user, comment_entry, analysis_result, auth_key
+    global current_images, current_user, auth_key, progress_bar
     if current_images:
         if current_user is None:
             messagebox.showinfo("Login Required", "Please log in before analyzing images.")
@@ -113,33 +166,10 @@ def analyze_current_image():
             messagebox.showinfo("Configuration Required", "Please configure the server and log in.")
             return
 
-        results = []
-        for image in current_images:
-            if image.mode == 'RGBA':
-                image = image.convert('RGB')
-
-            temp_image_path = "temp_image.jpg"
-            image.save(temp_image_path)
-
-            try:
-                folder = api.create_prediction_folder(auth_key)
-                api.add_image_to_prediction(auth_key,folder,temp_image_path)
-                prediction=api.make_mass_prediction(auth_key,folder)
-
-                results.append(prediction[0])
-                log_analysis(temp_image_path, str(prediction[0]), current_user)
-            except Exception as e:
-                messagebox.showerror("Analysis Error", f"An error occurred during analysis: {str(e)}")
-            finally:
-                os.remove(temp_image_path)
-
-        analysis_result = f"Analysis Results: {results}"
-        result_display.configure(state='normal')
-        result_display.delete('1.0', END)
-        result_display.insert('1.0', analysis_result)  # Display results in the result area
-        result_display.configure(state='disabled')  # Make the result display read-only
-        comment_entry.configure(state='normal')  # Enable the comment entry after analysis
-
+        progress_bar.pack(pady=10)  # Show the progress bar
+        progress_bar.start()
+        analysis_thread = threading.Thread(target=run_analysis)
+        analysis_thread.start()
     else:
         messagebox.showinfo("Information", "No image is currently displayed.")
 
@@ -152,20 +182,39 @@ def view_analysis_history():
 
             history_window = Toplevel(root)
             history_window.title("Analysis History")
-            history_window.geometry("600x400")
+            history_window.geometry("800x400")
 
-            scrollbar = Scrollbar(history_window)
+            tree_frame = Frame(history_window)
+            tree_frame.pack(fill='both', expand=True)
+
+            columns = ("Date", "User", "Result", "Comment")
+            tree = Treeview(tree_frame, columns=columns, show='headings')
+
+            tree.heading("Date", text="Date")
+            tree.heading("User", text="User")
+            tree.heading("Result", text="Result")
+            tree.heading("Comment", text="Comment")
+
+            tree.column("Date", width=150)
+            tree.column("User", width=100)
+            tree.column("Result", width=200)
+            tree.column("Comment", width=300)
+
+            scrollbar = Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
             scrollbar.pack(side=RIGHT, fill=Y)
 
-            text_area = Text(history_window, wrap='word', yscrollcommand=scrollbar.set)
-            text_area.pack(expand=True, fill='both')
-
             for entry in history:
-                entry_str = f"{entry['timestamp']} - {entry['user']} analyzed {entry['image']} and detected {entry['disease']}\n"
-                text_area.insert(END, entry_str)
+                date = entry['timestamp']
+                user = entry['user']
+                try:
+                    result = translate_result([eval(entry['disease'])])
+                except IndexError:
+                    result = "N/A"  # Handle cases where result is not in expected format
+                comment = entry.get('comment', '')  # Handle missing comments
+                tree.insert("", "end", values=(date, user, result, comment))
 
-            text_area.config(state='disabled')
-            scrollbar.config(command=text_area.yview)
+            tree.pack(fill='both', expand=True)
 
     except FileNotFoundError:
         messagebox.showinfo("Analysis History", "No analysis history available yet.")
@@ -179,7 +228,8 @@ def log_analysis(image_path, disease, user):
         "image": image_path,
         "disease": disease,
         "timestamp": timestamp,
-        "user": user
+        "user": user,
+        "comment": comment_entry.get("1.0", "end-1c").strip()  # Capture the current comment
     }
 
     try:
@@ -319,7 +369,7 @@ def submit_comment():
 
 # Main window setup
 def show_main_window():
-    global canvas, comment_entry, result_display, analyze_button, mosaic_button, open_image_button, view_history_button, submit_comment_button, image_frame, logout_button
+    global canvas, comment_entry, result_display, analyze_button, open_image_button, view_history_button, submit_comment_button, image_frame, logout_button, progress_bar
     global root
 
     root = customtkinter.CTk()
@@ -350,23 +400,20 @@ def show_main_window():
     button_frame_inner.pack(pady=10)
 
     # Arrange buttons horizontally and wrap to new line if necessary
-    analyze_button = customtkinter.CTkButton(button_frame_inner, text="Analyze Image", command=analyze_current_image, state="disabled")
+    analyze_button = customtkinter.CTkButton(button_frame_inner, text="Analyze Image/Images", command=analyze_current_image, state="disabled")
     analyze_button.grid(row=0, column=0, padx=5, pady=5)
 
-    mosaic_button = customtkinter.CTkButton(button_frame_inner, text="Mosaic Mode", command=open_images, state="enabled")
-    mosaic_button.grid(row=0, column=1, padx=5, pady=5)
+    open_image_button = customtkinter.CTkButton(button_frame_inner, text="Open Image/Images", command=open_images, state="disabled")
+    open_image_button.grid(row=0, column=1, padx=5, pady=5)
 
-    open_image_button = customtkinter.CTkButton(button_frame_inner, text="Open Image", command=open_image, state="disabled")
-    open_image_button.grid(row=0, column=2, padx=5, pady=5)
-
-    view_history_button = customtkinter.CTkButton(button_frame_inner, text="View History", command=view_analysis_history, state="disabled")
-    view_history_button.grid(row=1, column=0, padx=5, pady=5)
+    view_history_button = customtkinter.CTkButton(button_frame_inner, text="View History", command=view_analysis_history, state="normal")
+    view_history_button.grid(row=0, column=2, padx=5, pady=5)
 
     login_button = customtkinter.CTkButton(button_frame_inner, text="Login", command=open_login_window)
-    login_button.grid(row=1, column=1, padx=5, pady=5)
+    login_button.grid(row=1, column=0, padx=5, pady=5)
 
     logout_button = customtkinter.CTkButton(button_frame_inner, text="Logout", command=handle_logout, state="disabled")
-    logout_button.grid(row=1, column=2, padx=5, pady=5)
+    logout_button.grid(row=1, column=1, padx=5, pady=5)
 
     result_label = customtkinter.CTkLabel(button_frame, text="Analysis Result:")
     result_label.pack(pady=10)
@@ -388,6 +435,9 @@ def show_main_window():
 
     submit_comment_button = customtkinter.CTkButton(button_frame, text="Submit Comment", command=submit_comment, state="disabled")
     submit_comment_button.pack(pady=10)
+
+    # Create a progress bar but keep it hidden initially
+    progress_bar = Progressbar(button_frame, orient=tk.HORIZONTAL, length=300, mode='indeterminate')
 
     root.bind("<Configure>", lambda event: update_image_size())
 

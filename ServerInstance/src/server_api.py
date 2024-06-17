@@ -21,7 +21,7 @@ from torch.utils.data import Dataset
 
 model_path='serverFiles/model.pth'
 server_ip='localhost'
-labelNames=['NORMAL','DME','CNV','DRUSEN']
+labelNames=['CNV','DME','DRUSEN','NORMAL']
 
 
 class ImageDataset(Dataset):
@@ -32,7 +32,7 @@ class ImageDataset(Dataset):
             transform (callable, optional): Optional transform to be applied on a sample.
         """
         self.folder_path = folder_path
-        self.image_files = [f for f in os.listdir(folder_path) if f.endswith('.jpeg') or f.endswith('.png')]
+        self.image_files = sorted([f for f in os.listdir(folder_path) if f.endswith('.jpeg') or f.endswith('.png')])
         self.transform = transform
 
     def __len__(self):
@@ -180,6 +180,16 @@ class ServerApi:
         dataset = ImageDataset(folder_path, transform=transform)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
         return dataloader
+    
+    def count_files_in_directory(self,directory_path):
+    # Get the list of all files and directories in the specified directory
+        files_and_dirs = os.listdir(directory_path)
+        
+        # Filter out directories, keeping only files
+        files = [f for f in files_and_dirs if os.path.isfile(os.path.join(directory_path, f))]
+        
+        # Return the count of files
+        return len(files)
         
     def Analyze(self):
         if(self.Autheticate()==False):
@@ -286,19 +296,6 @@ class ServerApi:
         self.client_socket.close()
 
 
-    def old_prediction(self):
-        
-        print("Received the image successfully.")
-        floats =self.MakePrediction()
-        print("Made a prediction, deleting image")
-        os.remove(image_path)
-        data = struct.pack(f'{len(floats)}f', *floats)
-        print("Sending result to client")
-        self.client_socket.send(data)
-        # Close the connection
-        print("Closing client connection")
-        self.client_socket.close()
-
     def Autheticate(self):
         self.client_socket.send(str('unpause').encode('utf-8'))
         data = self.client_socket.recv(1024).decode('utf-8')
@@ -332,7 +329,7 @@ class ServerApi:
             directory, filename = os.path.split(base_path)
             base, extension = os.path.splitext(filename)
             counter = 1
-            new_path = base_path
+            new_path = os.path.join(directory, f"{base}_{counter}{extension}")
             while os.path.exists(new_path):
                 new_path = os.path.join(directory, f"{base}_{counter}{extension}")
                 counter += 1
@@ -350,24 +347,6 @@ class ServerApi:
         unique=get_unique_filename(path)
         with open(unique, 'wb') as f:
             f.write(data)
-
-
-    def MakePrediction(self):
-        image = Image.open(image_path)
-        input_tensor = transform(image).unsqueeze(0)
-
-        with torch.no_grad():  # Temporarily set all the requires_grad flag to false
-            raw_output = self.model(input_tensor)
-
-
-        numpyFloat=F.softmax(raw_output,dim=1).numpy()
-        list=numpyFloat.tolist()
-        result=list[0]
-
-        return result
-
-
-
 
 
 
