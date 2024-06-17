@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the image
-image_path = '4.jpeg'
+image_path = '6.jpeg'
 original = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 image = original
 
