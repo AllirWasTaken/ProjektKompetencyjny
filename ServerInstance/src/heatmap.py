@@ -84,7 +84,7 @@ def generate_gradcam(model, img_tensor, target_layer):
     return cam
 
 # Load and preprocess the image
-img_path = '6.jpeg'
+img_path = '2.jpeg'
 img_tensor = preprocess_image(img_path)
 
 # Choose the target layer (e.g., last convolutional layer before the fully connected layer)
