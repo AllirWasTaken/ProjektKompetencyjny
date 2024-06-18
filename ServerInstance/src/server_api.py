@@ -13,6 +13,7 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 from PIL import Image
+from preprocess import preprocess_image
 
 import torch.nn.functional as F
 import random
@@ -171,8 +172,6 @@ class ServerApi:
 
     def get_dataloader(self,folder_path, batch_size=4):
         transform = transforms.Compose([
-        MakeSquarePad(fill=255, padding_mode='constant'),  # Dynamically pad the image to make it square
-        transforms.Resize((512, 512)),  # Then resize it to 512x512
         transforms.Grayscale(num_output_channels=1),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.3196], std=[0.2934]),
@@ -204,7 +203,7 @@ class ServerApi:
         folder_path='serverFiles/images/'+str(folder)
         
         ret=[]
-        dataloader=self.get_dataloader(folder_path,8)
+        dataloader=self.get_dataloader(folder_path,4)
 
         with torch.no_grad():
             for batch in dataloader:
@@ -244,7 +243,7 @@ class ServerApi:
         self.client_socket.send(str('unpause').encode('utf-8'))
         
         self.size = int.from_bytes(self.client_socket.recv(4),'little')
-        path='serverFiles/images/'+str(folder)+'/image.jpeg'
+        path='serverFiles/images/'+str(folder)+'/ob.jpeg'
         self.SaveImage(path)
         self.client_socket.close()
 
@@ -344,9 +343,13 @@ class ServerApi:
                 break
             data += self.client_socket.recv(toRecieve)
             
-        unique=get_unique_filename(path)
-        with open(unique, 'wb') as f:
+        temp_path=path.replace('ob','temp')
+        with open(temp_path, 'wb') as f:
             f.write(data)
+
+        unique=get_unique_filename(path)
+        preprocess_image(temp_path,unique)
+        os.remove(temp_path)
 
 
 

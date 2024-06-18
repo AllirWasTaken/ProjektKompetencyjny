@@ -31,7 +31,7 @@ class Trainer:
     best_accuracy = load_accuracy(best_accuracy_path) * 1.0
     best_checkpoint_path = f"./checkpoints/best_checkpoint_{best_accuracy:{1}.{2}}"
 
-    def __init__(self, model, checkpoint_dir='./checkpoints'):
+    def __init__(self, model, lr_in, checkpoint_dir='./checkpoints'):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         self.model = model.to(self.device)  # Move model to the appropriate device
@@ -40,13 +40,14 @@ class Trainer:
         self.checkpoint_path = os.path.join(checkpoint_dir, 'model_checkpoint.pth')
         os.makedirs(checkpoint_dir, exist_ok=True)
         self.main_process_id = os.getpid()
+        self.lr=lr_in
         self.configure()
         self.current_accuracy = 0
 
 
     def configure(self):
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.000000001)
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=pow(10,self.lr))
         self.start_epoch = 0
 
     def save_checkpoint(self, epoch):
@@ -138,10 +139,10 @@ class Trainer:
             print("Starting a new training session without loading a checkpoint.")
 
         train_dataset = datasets.ImageFolder(root='../processed/train', transform=transform)
-        self.train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+        self.train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
 
         test_dataset = datasets.ImageFolder(root='../processed/test', transform=transform)
-        self.test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+        self.test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
             
         for epoch in range(self.start_epoch, self.start_epoch + num_epochs):
             self.current_epoch = epoch
@@ -169,13 +170,26 @@ if __name__ == "__main__":
     transform = transforms.Compose([
         transforms.Grayscale(num_output_channels=1),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.3196], std=[0.2934]),
+        transforms.Normalize(mean=[0.0784], std=[0.1519]),
     ])
 
     num_classes = 4
     model = SimpleCNN(num_classes=num_classes)
 
-    trainer = Trainer(model)
+    learning_rate=input("input learning rate 10^")
+
+    lr=-2
+    try:
+        lr=int(learning_rate)
+    except:
+        print("failed to parse")
+        exit()
+
+    if lr>0:
+        print("wrong value")
+        exit()
+
+    trainer = Trainer(model,lr)
 
     user_choice = input("Press 'N' to start a new training session or any other key to resume: ").lower()
     resume_training = True
@@ -194,6 +208,10 @@ if __name__ == "__main__":
     except ValueError:
         print("Invalid number of epochs. Using default 10 epochs.")
         num_epochs = 10
+
+
+    
+
 
     trainer.train(num_epochs, resume_from_checkpoint=resume_training)
 
