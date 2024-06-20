@@ -174,7 +174,7 @@ class ServerApi:
         transform = transforms.Compose([
         transforms.Grayscale(num_output_channels=1),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.3196], std=[0.2934]),
+        transforms.Normalize(mean=[0.0784], std=[0.1519]),
         ])
         dataset = ImageDataset(folder_path, transform=transform)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)

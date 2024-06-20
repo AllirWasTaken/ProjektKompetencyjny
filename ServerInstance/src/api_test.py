@@ -25,4 +25,4 @@ log_out(key)
 
 key=get_auth_key('admin','papuga12')
 print(key)
-shutdown_server(key)
+#shutdown_server(key)
