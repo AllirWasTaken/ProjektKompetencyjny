@@ -1,106 +1,80 @@
-import os
 import torch
-import torch.nn.functional as F
-import torchvision.models as models
-import torchvision.transforms as transforms
+import torch.nn as nn
+from torchvision import models, transforms
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
-from model_definition import SimpleCNN
+import cv2
+from model_definition import SimpleCNN  
 
-# Load the pre-trained ResNet50 model
-device = torch.device("cpu")
-print(f'Using device: {device}')
-# Parameters
-num_classes = 4  # Update this based on your specific dataset
+# Load the trained ResNet50 model
+device=torch.device("cpu")
+checkpoint = torch.load("serverFiles/model.pth", map_location=device)
 
-model_path="serverFiles/model.pth"
 
-# Load the trained model
-model = SimpleCNN(num_classes=num_classes).to(device)
-checkpoint = torch.load(model_path, map_location=device)
+model = SimpleCNN(num_classes=4).to(device)
 model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
 
-
-class MakeSquarePad(object):
-    def __init__(self, fill=0, padding_mode='constant'):
-        self.fill = fill
-        self.padding_mode = padding_mode
-
-    def __call__(self, img):
-        w, h = img.size
-        max_side = max(w, h)
-        pad_left = (max_side - w) // 2
-        pad_right = max_side - w - pad_left
-        pad_top = (max_side - h) // 2
-        pad_bottom = max_side - h - pad_top
-        padding = (pad_left, pad_top, pad_right, pad_bottom)
-        return transforms.Pad(padding, fill=self.fill, padding_mode=self.padding_mode)(img)
-
-
-# Function to preprocess the input image
-def preprocess_image(img_path):
-    preprocess = transforms.Compose([
-        MakeSquarePad(fill=255, padding_mode='constant'),  # Dynamically pad the image to make it square
-        transforms.Resize((512, 512)),  # Then resize it to 512x512
-        transforms.Grayscale(num_output_channels=1),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.3196], std=[0.2934]),
-    ])
-    img = Image.open(img_path).convert("L")  # Convert to grayscale
-    img_tensor = preprocess(img)
-    img_tensor = img_tensor.unsqueeze(0)  # Add batch dimension
-    return img_tensor
-
-# Function to generate Grad-CAM
-def generate_gradcam(model, img_tensor, target_layer):
-    def get_gradients_hook(module, grad_in, grad_out):
-        gradients.append(grad_out[0])
-    
-    gradients = []
-    activations = []
-    target_layer.register_forward_hook(lambda module, input, output: activations.append(output))
-    target_layer.register_backward_hook(get_gradients_hook)
-    
-    output = model(img_tensor)
-    class_idx = torch.argmax(output).item()
-    
-    model.zero_grad()
-    output[0, class_idx].backward()
-    
-    grads_val = gradients[0].cpu().data.numpy().squeeze()
-    activations = activations[0].cpu().data.numpy().squeeze()
-    
-    weights = np.mean(grads_val, axis=(1, 2))
-    cam = np.zeros(activations.shape[1:], dtype=np.float32)
-    
-    for i, w in enumerate(weights):
-        cam += w * activations[i, :, :]
-    
-    cam = np.maximum(cam, 0)
-    cam = cam / cam.max()
-    cam = np.uint8(cam * 255)
-    cam = np.uint8(Image.fromarray(cam).resize((512, 512), Image.Resampling.LANCZOS))
-    return cam
+# Define the image preprocessing
+preprocess = transforms.Compose([
+    transforms.Resize((512,512)),
+    transforms.Grayscale(num_output_channels=1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.0784], std=[0.1519]),
+])
 
 # Load and preprocess the image
-img_path = '2.jpeg'
-img_tensor = preprocess_image(img_path)
+img_path = 'test_images/processed/1.jpeg'  # Change this to the path of your image
+img = Image.open(img_path).convert('RGB')
+input_tensor = preprocess(img).unsqueeze(0)  # Create a mini-batch as expected by the model
 
-# Choose the target layer (e.g., last convolutional layer before the fully connected layer)
-target_layer = model.resnet50.layer4[2].conv3
+# Hook to capture activations and gradients
+activations = None
+gradients = None
 
-# Generate the Grad-CAM
-cam = generate_gradcam(model, img_tensor, target_layer)
+def forward_hook(module, input, output):
+    global activations
+    activations = output
 
-# Display the image and Grad-CAM
-img = Image.open(img_path).convert("L")
-plt.figure(figsize=(10, 10))
-plt.subplot(1, 2, 1)
-plt.imshow(img, cmap='gray')
-plt.axis('off')
-plt.subplot(1, 2, 2)
-plt.imshow(img, cmap='gray')
-plt.imshow(cam, cmap='jet', alpha=0.5)  # Overlay Grad-CAM
+def backward_hook(module, grad_in, grad_out):
+    global gradients
+    gradients = grad_out[0]
+
+# Register hooks
+target_layer = model.resnet50.layer4[2].conv3  # This targets the final convolutional layer of ResNet50
+target_layer.register_forward_hook(forward_hook)
+target_layer.register_backward_hook(backward_hook)
+
+# Forward pass
+output = model(input_tensor)
+output_idx = output.argmax()
+output[:, output_idx].backward()
+
+# Process CAM
+gradients_np = gradients.cpu().data.numpy()[0]
+activations_np = activations.cpu().data.numpy()[0]
+weights = np.mean(gradients_np, axis=(1, 2))
+cam = np.zeros(activations_np.shape[1:], dtype=np.float32)
+
+for i, w in enumerate(weights):
+    cam += w * activations_np[i, :, :]
+
+cam = np.maximum(cam, 0)
+cam = cv2.resize(cam, (512, 512))
+cam -= np.min(cam)
+cam /= np.max(cam)
+
+# Invert the CAM values
+cam = 1 - cam
+
+# Visualize the heatmap
+heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
+heatmap = np.float32(heatmap) / 255
+img = np.array(img)
+heatmap = heatmap + np.float32(img) / 255
+heatmap = heatmap / np.max(heatmap)
+
+plt.imshow(heatmap)
 plt.axis('off')
 plt.show()

@@ -2,3 +2,4 @@ ServerInstance/data
 ServerInstance/processed
 ServerInstance/src/checkpoints
 ServerInstance/src/serverFiles
+ServerInstance/model_backups

@@ -14,7 +14,7 @@ customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("dark-blue")
 
 # Automatically configure the server address when the application starts
-server_address = "localhost"
+server_address = "194.107.18.163"
 api.configure(server_address)
 
 # Global variables

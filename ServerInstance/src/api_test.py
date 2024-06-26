@@ -1,7 +1,7 @@
 from client_api import configure,get_auth_key,shutdown_server,get_label_names,create_prediction_folder,log_out,create_user,add_image_to_prediction,make_mass_prediction
 
 
-configure("localhost")
+configure("194.107.18.163")
 
 key=get_auth_key('admin','papuga12')
 print(key)

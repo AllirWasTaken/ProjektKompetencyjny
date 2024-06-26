@@ -45,7 +45,7 @@ def preprocess_image_debug(path_src):
 
     plt.figure(figsize=(15, 10))
     plt.subplot(3, 4, 1)
-    plt.title("Original Image")
+    plt.title("Oryginalny obraz")
     plt.imshow(image, cmap='gray')
 
     
@@ -53,7 +53,7 @@ def preprocess_image_debug(path_src):
     # Threshold to create a binary mask
     _, binary_mask = cv2.threshold(image, 250, 255, cv2.THRESH_BINARY)
     plt.subplot(3, 4, 2)
-    plt.title("White space on edge of screen")
+    plt.title("Wykrycie brzegowych białych obszarów")
     plt.imshow(binary_mask, cmap='gray')
 
     # Find contours of the white region
@@ -65,20 +65,20 @@ def preprocess_image_debug(path_src):
     # Draw over the largest contour to remove it (fill it with black)
     cv2.drawContours(image, [largest_contour], -1, (0, 0, 0), thickness=cv2.FILLED)
     plt.subplot(3, 4, 3)
-    plt.title("Contour Removed")
+    plt.title("Wypełnie obszarów")
     plt.imshow(image, cmap='gray')
 
     # Apply Non-Local Means Denoising
     nlm_filtered = cv2.fastNlMeansDenoising(image, None, 30, 7, 21)
     plt.subplot(3, 4, 4)
-    plt.title("NLM Filtered")
+    plt.title("Rozmycie za pomocą N1FMD")
     plt.imshow(nlm_filtered, cmap='gray')
 
     # Calculate median value and create mask
     median_value = np.mean(nlm_filtered)
     _, mask = cv2.threshold(nlm_filtered, median_value, 255, cv2.THRESH_BINARY)
     plt.subplot(3, 4, 5)
-    plt.title("Mask from NLM Filtered")
+    plt.title("Wydobycie maski z obrazu")
     plt.imshow(mask, cmap='gray')
 
     border_size=5
@@ -110,18 +110,18 @@ def preprocess_image_debug(path_src):
     # Cut out the region
     cut_out = cv2.bitwise_and(image, black_image)
     plt.subplot(3, 4, 6)
-    plt.title("Cut Out")
+    plt.title("Wypełnienie dziur w masce")
     plt.imshow(black_image, cmap='gray')
 
     # Final image
     final_image = cut_out
     plt.subplot(3, 4, 7)
-    plt.title("Final cut out")
+    plt.title("Nałożenie maski na oryginalny obraz")
     plt.imshow(final_image, cmap='gray')
 
     image=make_square(final_image)
     plt.subplot(3, 4, 8)
-    plt.title("Padded")
+    plt.title("Square padding i skalowanie na 512x512")
     plt.imshow(image, cmap='gray')
 
     plt.tight_layout()
